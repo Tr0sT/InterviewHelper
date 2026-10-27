@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::{
     fs,
     io::Cursor,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
@@ -22,13 +22,6 @@ struct Credentials {
     token: String,
     account: Option<String>,
     expires: u64,
-}
-fn auth_path() -> Result<PathBuf, String> {
-    let root = std::env::var_os("CODEX_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".codex")))
-        .ok_or("Не найден каталог Codex.")?;
-    Ok(root.join("auth.json"))
 }
 fn parse_credentials(value: &Value) -> Result<Credentials, String> {
     let token = value["tokens"]["access_token"]
@@ -54,7 +47,7 @@ fn parse_credentials(value: &Value) -> Result<Credentials, String> {
     })
 }
 fn read_credentials() -> Result<Credentials, String> {
-    let path = auth_path()?;
+    let path = crate::platform::codex_auth_path()?;
     let bytes = fs::read(path).map_err(|_| {
         "Не удалось прочитать вход Codex. Войдите в Codex через ChatGPT.".to_string()
     })?;
@@ -102,7 +95,7 @@ fn post(
         .post(ENDPOINT)
         .bearer_auth(&auth.token)
         .header("originator", "Codex Desktop")
-        .header("User-Agent", "Codex Desktop/1.0.4 (linux; x64)")
+        .header("User-Agent", crate::platform::transcription_user_agent())
         .header(
             "Content-Type",
             format!("multipart/form-data; boundary={boundary}"),

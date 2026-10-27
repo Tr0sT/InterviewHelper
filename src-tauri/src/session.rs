@@ -1,9 +1,7 @@
+use crate::platform::files::atomic_write;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    fs::{self, File, OpenOptions},
-    io::Write,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -61,7 +59,7 @@ impl Default for Settings {
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         let cut = crate::hotkeys::parse(&self.cut_shortcut)?;
-        let mut shortcuts = HashSet::from([(cut.mask, cut.key)]);
+        let mut shortcuts = HashSet::from([cut]);
         let mut ids = HashSet::new();
         for action in &self.actions {
             if action.id.is_empty()
@@ -88,7 +86,7 @@ impl Settings {
             }
             if !action.shortcut.trim().is_empty() {
                 let shortcut = crate::hotkeys::parse(&action.shortcut)?;
-                if !shortcuts.insert((shortcut.mask, shortcut.key)) {
+                if !shortcuts.insert(shortcut) {
                     return Err(format!(
                         "Горячая клавиша кнопки «{}» уже используется другим действием.",
                         action.name
@@ -296,34 +294,11 @@ pub fn now_ms() -> u64 {
 pub fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() < 80 && id.bytes().all(|b| b.is_ascii_digit() || b == b'-')
 }
-pub fn private_dir(path: &Path) -> Result<(), String> {
-    fs::create_dir_all(path).map_err(|e| format!("Не удалось создать {}: {e}", path.display()))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(|e| e.to_string())
-}
 pub fn atomic_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
     atomic_write(
         path,
         &serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?,
     )
-}
-fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path.parent().ok_or("Путь файла без каталога.")?;
-    private_dir(parent)?;
-    let temp = path.with_extension(format!("{}.tmp", std::process::id()));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&temp)
-        .map_err(|e| format!("Ошибка сохранения: {e}"))?;
-    file.write_all(bytes)
-        .and_then(|_| file.sync_all())
-        .map_err(|e| format!("Ошибка записи: {e}"))?;
-    fs::rename(&temp, path).map_err(|e| format!("Не удалось обновить файл: {e}"))?;
-    File::open(parent)
-        .and_then(|f| f.sync_all())
-        .map_err(|e| format!("Не удалось синхронизировать каталог: {e}"))
 }
 pub fn context_path(root: &Path, id: &str) -> Result<PathBuf, String> {
     if !valid_id(id) {
@@ -365,6 +340,7 @@ pub fn save(root: &Path, session: &Session) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     fn fixture() -> Session {
         let mut s = Session::new(&Settings::default());
         for i in 0..3 {
@@ -464,12 +440,8 @@ mod tests {
             "Ответь · после отрезка #002 · gpt-6-luna / low / standard\nПодсказка модели.\n\n"
         );
         assert!(!path.with_file_name("session.json").exists());
-        assert_eq!(
-            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
-            0o600
-        );
         assert!(context_path(dir.path(), "../escape").is_err());
-        s.segments[0].audio_path = "/tmp/other.wav".into();
+        s.segments[0].audio_path = "other.wav".into();
         assert!(save(dir.path(), &s).is_err());
     }
 }

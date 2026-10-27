@@ -1,6 +1,10 @@
 use crate::{
-    audio::{self, Capture, CaptureEvent},
+    audio::{self, CaptureEvent},
     codex::Backend,
+    platform::{
+        capture::{self, Capture},
+        files::private_dir,
+    },
     session::{self, Segment, Session, Settings, Status},
 };
 use serde_json::{json, Value};
@@ -55,8 +59,8 @@ impl Service {
         backend: Arc<dyn Backend>,
         notify: Notify,
     ) -> Result<Arc<Self>, String> {
-        session::private_dir(&root)?;
-        session::private_dir(&root.join("sessions"))?;
+        private_dir(&root)?;
+        private_dir(&root.join("sessions"))?;
         let settings = if root.join("settings.json").exists() {
             serde_json::from_slice::<Settings>(
                 &fs::read(root.join("settings.json")).map_err(|e| e.to_string())?,
@@ -191,7 +195,7 @@ impl Service {
             return Err("Запись уже идёт.".into());
         }
         let mut settings = self.settings();
-        let devices = audio::devices()?;
+        let devices = capture::devices()?;
         if settings.microphone.is_empty() {
             settings.microphone = devices.default_microphone;
         }
@@ -205,18 +209,18 @@ impl Service {
         let id = state.id.clone();
         let target = Arc::new(Mutex::new(state));
         let (tx, rx) = mpsc::channel();
-        let recorder = match audio::start(self.root.join("sessions").join(&id), settings, 1, 0, tx)
-        {
-            Ok(r) => r,
-            Err(error) => {
-                self.update(&target, |s| {
-                    s.recording = false;
-                    s.segments.clear();
-                    Ok(())
-                })?;
-                return Err(error);
-            }
-        };
+        let recorder =
+            match capture::start(self.root.join("sessions").join(&id), settings, 1, 0, tx) {
+                Ok(r) => r,
+                Err(error) => {
+                    self.update(&target, |s| {
+                        s.recording = false;
+                        s.segments.clear();
+                        Ok(())
+                    })?;
+                    return Err(error);
+                }
+            };
         self.sessions
             .lock()
             .map_err(|e| e.to_string())?

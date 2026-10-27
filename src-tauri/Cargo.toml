@@ -2,6 +2,7 @@
 name = "interview-helper"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [features]
 default = ["desktop"]
@@ -13,8 +14,11 @@ serde_json = "=1.0.149"
 base64 = "=0.22.1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 hound = "=3.5.1"
-libc = "=0.2.182"
+dirs = "=6.0.0"
 tauri = { version = "=2.11.5", features = ["tray-icon"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "=0.2.182"
 
 [build-dependencies]
 tauri-build = { version = "=2.6.3", features = [], optional = true }

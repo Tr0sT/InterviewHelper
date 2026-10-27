@@ -17,7 +17,7 @@
               relative = pkgs.lib.removePrefix (toString self + "/") (toString path);
               first = builtins.head (pkgs.lib.splitString "/" relative);
             in toString path == toString self ||
-              (builtins.elem first [ "src-tauri" "ui" "THIRD_PARTY_NOTICES.md" ] &&
+              (builtins.elem first [ "src-tauri" "ui" "LICENSE" "THIRD_PARTY_NOTICES.md" ] &&
                !(builtins.elem (baseNameOf path) [ "target" ]));
         };
         cargoRoot = "src-tauri";
@@ -29,6 +29,7 @@
         postInstall = ''
           install -Dm644 $src/src-tauri/icons/icon.png $out/share/icons/hicolor/64x64/apps/interview-helper.png
           install -Dm644 $src/THIRD_PARTY_NOTICES.md $out/share/doc/interview-helper/THIRD_PARTY_NOTICES.md
+          install -Dm644 $src/LICENSE $out/share/doc/interview-helper/LICENSE
           mkdir -p $out/share/applications
           cat > $out/share/applications/interview-helper.desktop <<EOF
           [Desktop Entry]
@@ -50,6 +51,7 @@
           )
         '';
         meta.mainProgram = "interview-helper";
+        meta.license = pkgs.lib.licenses.mit;
       };
       devShells.${system}.default = pkgs.mkShell {
         packages = with pkgs; [ cargo rustc clippy rustfmt pkg-config nodejs ffmpeg pulseaudio ];

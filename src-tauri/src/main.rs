@@ -1,20 +1,12 @@
 use interview_helper::{
-    audio, codex::Codex, hotkeys::Hotkeys, service::Service, session::Settings,
+    audio,
+    codex::Codex,
+    platform::{self, control, hotkeys::Hotkeys},
+    service::Service,
+    session::Settings,
 };
 use serde_json::{json, Value};
-use std::{
-    fs::{self},
-    io::{BufRead, BufReader, Read, Write},
-    os::unix::{
-        fs::{FileTypeExt, MetadataExt, PermissionsExt},
-        net::{UnixListener, UnixStream},
-    },
-    path::PathBuf,
-    process::Command,
-    sync::{Arc, Mutex},
-    thread,
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
@@ -40,7 +32,7 @@ fn snapshot(state: State<AppState>) -> Value {
 }
 #[tauri::command]
 fn audio_devices() -> Result<audio::Devices, String> {
-    audio::devices()
+    platform::capture::devices()
 }
 #[tauri::command]
 fn start_recording(state: State<AppState>) -> Result<(), String> {
@@ -106,43 +98,13 @@ fn clear_error(state: State<AppState>) {
 }
 #[tauri::command]
 fn open_context_file(state: State<AppState>) -> Result<(), String> {
-    Command::new("xdg-open")
-        .arg(state.service.context_file()?)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    platform::open_path(&state.service.context_file()?)
 }
 #[tauri::command]
 fn open_data_folder(state: State<AppState>) -> Result<(), String> {
-    Command::new("xdg-open")
-        .arg(&state.service.root)
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    platform::open_path(&state.service.root)
 }
 
-fn socket_path() -> Result<PathBuf, String> {
-    let root = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .ok_or("Не установлен XDG_RUNTIME_DIR.")?;
-    let meta = fs::metadata(&root).map_err(|e| e.to_string())?;
-    if meta.uid() != unsafe { libc::geteuid() } || meta.permissions().mode() & 0o077 != 0 {
-        return Err("Небезопасный каталог пользовательской сессии.".into());
-    }
-    Ok(root.join("interview-helper.sock"))
-}
-fn send_command(path: &PathBuf, command: &str) -> Result<Value, String> {
-    let mut stream = UnixStream::connect(path).map_err(|e| e.to_string())?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(5)))
-        .map_err(|e| e.to_string())?;
-    writeln!(stream, "{command}").map_err(|e| e.to_string())?;
-    let mut reply = String::new();
-    BufReader::new(stream)
-        .read_line(&mut reply)
-        .map_err(|e| e.to_string())?;
-    serde_json::from_str(&reply).map_err(|e| e.to_string())
-}
 fn handle_command(app: &tauri::AppHandle, command: &str) -> Result<Value, String> {
     let state = app.state::<AppState>();
     match command {
@@ -182,7 +144,6 @@ fn main() {
     }
 }
 fn run() -> Result<(), String> {
-    let socket = socket_path()?;
     let args: Vec<_> = std::env::args().collect();
     if args.len() > 1 {
         if args.len() != 3 || args[1] != "--command" {
@@ -190,36 +151,19 @@ fn run() -> Result<(), String> {
                 "Использование: interview-helper [--command show|cut|action:<id>|start|stop|status|quit]".into(),
             );
         }
-        let reply = send_command(&socket, &args[2])?;
+        let reply = control::send(&args[2])?;
         if let Some(error) = reply["error"].as_str() {
             return Err(error.into());
         }
         println!("{reply}");
         return Ok(());
     }
-    if send_command(&socket, "show").is_ok() {
+    if control::send("show").is_ok() {
         return Ok(());
     }
-    if socket.exists() {
-        let meta = fs::symlink_metadata(&socket).map_err(|e| e.to_string())?;
-        if !meta.file_type().is_socket() || meta.uid() != unsafe { libc::geteuid() } {
-            return Err("Путь управляющего сокета занят другим файлом.".into());
-        }
-        fs::remove_file(&socket).map_err(|e| e.to_string())?;
-    }
-    let listener = UnixListener::bind(&socket).map_err(|e| e.to_string())?;
-    fs::set_permissions(&socket, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
-    let root = if let Some(path) = std::env::var_os("INTERVIEW_HELPER_DATA_DIR") {
-        PathBuf::from(path)
-    } else {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var_os("HOME").expect("HOME is required"))
-                    .join(".local/share")
-            })
-            .join("interview-helper")
-    };
+    let control = Arc::new(control::Server::bind()?);
+    let incoming = control.clone();
+    let root = platform::data_dir()?;
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             snapshot,
@@ -282,26 +226,13 @@ fn run() -> Result<(), String> {
                 })
                 .build(app)?;
             let handle = app.handle().clone();
-            thread::spawn(move || {
-                for stream in listener.incoming() {
-                    let Ok(mut stream) = stream else { break };
-                    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
-                    let mut command = String::new();
-                    let read = BufReader::new((&stream).take(129)).read_line(&mut command);
-                    let reply = if read.is_ok() && command.len() < 128 {
-                        match handle_command(&handle, command.trim()) {
-                            Ok(value) => value,
-                            Err(error) => {
-                                handle.state::<AppState>().service.set_error(error.clone());
-                                json!({"error":error})
-                            }
-                        }
-                    } else {
-                        json!({"error":"Некорректная команда."})
-                    };
-                    let _ = writeln!(stream, "{reply}");
+            incoming.start(move |command| match handle_command(&handle, command) {
+                Ok(value) => value,
+                Err(error) => {
+                    handle.state::<AppState>().service.set_error(error.clone());
+                    json!({"error":error})
                 }
-            });
+            })?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -317,6 +248,6 @@ fn run() -> Result<(), String> {
             handle.state::<AppState>().hotkeys.clear();
         }
     });
-    let _ = fs::remove_file(socket);
+    drop(control);
     Ok(())
 }

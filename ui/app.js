@@ -275,7 +275,7 @@ async function openSettings(prompt = false) {
   $('cut-shortcut').value = state.settings.cut_shortcut || '';
   $('action-editors').replaceChildren();
   for (const action of state.settings.actions || []) addActionEditor(action);
-  $('hotkey-status').textContent = state.hotkey_error || 'Глобальные клавиши зарегистрированы в Hyprland.';
+  $('hotkey-status').textContent = state.hotkey_error || 'Глобальные горячие клавиши зарегистрированы.';
   $('settings-dialog').showModal();
   if (prompt) ($('action-editors').querySelector('textarea') || $('add-action')).focus();
 }
