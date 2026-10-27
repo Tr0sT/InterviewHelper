@@ -243,9 +243,12 @@ fn run() -> Result<(), String> {
         })
         .build(tauri::generate_context!())
         .map_err(|e| e.to_string())?;
-    app.run(|handle, event| {
+    // Tauri may terminate the process without running destructors.
+    let shutdown = control.clone();
+    app.run(move |handle, event| {
         if matches!(event, tauri::RunEvent::Exit) {
             handle.state::<AppState>().hotkeys.clear();
+            shutdown.close();
         }
     });
     drop(control);

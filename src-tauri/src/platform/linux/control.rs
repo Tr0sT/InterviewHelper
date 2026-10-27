@@ -7,6 +7,7 @@ use std::{
         net::{UnixListener, UnixStream},
     },
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::Duration,
 };
@@ -42,6 +43,7 @@ fn send_to(path: &Path, command: &str) -> Result<Value, String> {
 pub struct Server {
     path: PathBuf,
     listener: UnixListener,
+    closed: AtomicBool,
 }
 impl Server {
     pub fn bind() -> Result<Self, String> {
@@ -57,7 +59,11 @@ impl Server {
         }
         let listener = UnixListener::bind(&path).map_err(|e| e.to_string())?;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
-        Ok(Self { path, listener })
+        Ok(Self {
+            path,
+            listener,
+            closed: AtomicBool::new(false),
+        })
     }
     pub fn start(&self, handler: impl Fn(&str) -> Value + Send + 'static) -> Result<(), String> {
         let listener = self.listener.try_clone().map_err(|e| e.to_string())?;
@@ -67,6 +73,9 @@ impl Server {
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
                 let mut command = String::new();
                 let read = BufReader::new((&stream).take(129)).read_line(&mut command);
+                if matches!(read, Ok(0)) {
+                    continue;
+                }
                 let reply = if read.is_ok() && command.len() < 128 {
                     handler(command.trim())
                 } else {
@@ -77,10 +86,15 @@ impl Server {
         });
         Ok(())
     }
+    pub fn close(&self) {
+        if !self.closed.swap(true, Ordering::AcqRel) {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
 }
 impl Drop for Server {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        self.close();
     }
 }
 
@@ -92,7 +106,16 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("control.sock");
         let server = Server::bind_at(path.clone()).unwrap();
-        server.start(|command| json!({"command":command})).unwrap();
+        server
+            .start(|command| {
+                assert!(
+                    !command.is_empty(),
+                    "Disconnected probes must not dispatch a command"
+                );
+                json!({"command":command})
+            })
+            .unwrap();
+        drop(UnixStream::connect(&path).unwrap());
         assert_eq!(
             fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o600
@@ -102,8 +125,11 @@ mod tests {
             .unwrap()
             .get("error")
             .is_some());
-        drop(server);
+        server.close();
         assert!(!path.exists());
+        fs::write(&path, "new owner").unwrap();
+        drop(server);
+        assert_eq!(fs::read_to_string(path).unwrap(), "new owner");
     }
     #[test]
     fn existing_regular_files_are_not_removed() {

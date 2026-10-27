@@ -53,6 +53,7 @@ pub mod control {
     }
     pub struct Server;
     impl Server {
+        pub fn close(&self) {}
         pub fn bind() -> Result<Self, String> {
             Err(super::unavailable("Локальный канал управления"))
         }
