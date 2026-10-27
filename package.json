@@ -1,0 +1,6 @@
+{
+  "name": "interview-helper-ui-checks",
+  "private": true,
+  "scripts": { "test": "node --test tests/ui.test.cjs" },
+  "devDependencies": { "@playwright/test": "1.58.0" }
+}

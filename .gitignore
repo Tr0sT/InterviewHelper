@@ -1,0 +1,10 @@
+/src-tauri/target/
+/src-tauri/gen/
+/result
+/test-results/
+/node_modules/
+*.log
+/sessions/
+/settings.json
+/.env
+/.env.*

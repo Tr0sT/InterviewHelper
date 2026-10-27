@@ -1,0 +1,39 @@
+Use case: ui-mockup
+Asset type: revised main screen of the Russian desktop meeting assistant AIInterview.
+Input image: previous AIInterview screenshot, a style and layout reference. Preserve its refined warm white / ivory content, deep forest-green sidebar, restrained green highlights, clear Cyrillic sans-serif typography, understated borders, ample reading space, and flat front-on desktop composition. Rebuild content to match the UPDATED interaction model below. Output one wide landscape app screenshot about 16:10. No computer frame or surrounding desktop.
+
+Critical behavior to represent accurately: the app records the mixed system output plus microphone continuously. A user closes a segment using one of TWO hotkeys. Closed segments are transcribed directly through Codex and analyzed concurrently. The ongoing new segment is recorded independently throughout. Recording stops only through the visible button "Остановить". There must be NO pause button, NO Handy name, NO automatically recognized live phrases, and NO separate transcripts labeled as the user's mic versus other participants. The mix is one stream. Recognition and analysis are two distinct task states.
+
+Header: brand "AIInterview", small "ДЕМО"; session title "Архитектура платформы", subtitle "Конференция · 26 октября". Right: a green recording dot and "Идёт запись", timer "18:42", and a visually clear muted-red outline stop button with square icon "Остановить".
+
+Three columns: compact deep green sidebar approx 21%, central workspace approx 44%, right reading/action panel approx 35%.
+
+Left sidebar: heading "ОБЩИЙ АУДИОПОТОК". One card with source labels "Звук системы + микрофон" and a SINGLE mint waveform. Under it "Записывается отрезок #004" and a large short timer "00:44". Caption "17:58 — сейчас".
+Below: navigation "Разбор сессии" selected, then "Контекст сессии".
+Below a settings card heading "Промпт анализа", small preview text "Выдели темы, вопросы и ответы…" and a visible small "Изменить" button.
+At the bottom show "Распознавание · Codex" and "Анализ · Luna", and a small context status "Результаты сохраняются".
+
+Central panel: main heading "Разбор сессии". Subheading "Вопросы и ответы". A clear category pill "Архитектура", source label "Отрезок #001", and large selected question "Как решение выдержит рост нагрузки?" with an amber small "Ожидает ответа". Second card category "Продукт", question "Почему вы начали с MVP?", label "ОТВЕТ В РАЗГОВОРЕ" and excerpt "Сначала проверяем основной сценарий." with status "Отвечено". Avoid any claim to know who spoke in a mixed channel.
+Lower central area: heading "Отрезки" with a subtle "Обрабатываются параллельно". A clean compact four-row queue, sorted newest first:
+"#004" | "17:58 — сейчас" | green dot "Записывается"
+"#003" | "12:10 — 17:58" | blue dot "Распознаётся"
+"#002" | "06:12 — 12:10" | amber dot "Анализируется"
+"#001" | "00:00 — 06:12" | check "Готово"
+Each row clearly aligned and not cramped. This task queue is essential.
+
+Right panel heading "Ответ для вас". Small muted-green badge "Черновик Luna". Small source note "По контексту до #001". Large comfortable reading text in three short paragraphs:
+"Начнём с измерения нагрузки и поиска узких мест."
+"Затем масштабируем компоненты, которые ограничивают производительность."
+"Каждое изменение проверим на реальных сценариях."
+Separated small label "Подсказка ещё не произнесена".
+At the bottom TWO visually distinct full-width action buttons with readable shortcuts:
+1. light outlined button "Обработать отрезок", below or inside small "Ctrl + Alt + Space".
+2. prominent deep green button with small sparkle icon "Ответь", below or inside small "Ctrl + Alt + Enter".
+Footnote beneath both "Запись продолжается после нажатия".
+Do not add extra answer buttons elsewhere.
+
+Constraints: correct readable Cyrillic, literal labels as provided. No pause symbol or pause wording. No Handy. No individual speaker identity inference. No diagrams, promotional slogans, pricing, browser chrome, photography, or extra navigation features. Every control has sufficient contrast and comfortable spacing. This is an illustrative demo, no real recording is taking place. Preserve the original professional visual language while making ongoing recording, parallel segment processing, editable analysis prompt and the two actions unmistakable.
+
+
+Targeted refinement after visual review:
+Edit only the second Q&A card in the central column, the one with the blue category label "Продукт". Preserve all other parts of this screenshot, including the recording status, stop control, sidebar, task queue, answer panel, both hotkeys, exact visual style and layout. In this second card, change the upper-right source from "Отрезок #002" to "Отрезок #001" because only #001 has finished processing. Add the missing bold question "Почему вы начали с MVP?" between the category row and the small "ОТВЕТ В РАЗГОВОРЕ" label. Keep the answer "Сначала проверяем основной сценарий." and the small "Отвечено" state. Rearrange spacing only inside this card so the question and answer are both legible without overflow. No other text or layout changes.

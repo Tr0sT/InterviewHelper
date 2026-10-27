@@ -1,0 +1,39 @@
+[package]
+name = "interview-helper"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["desktop"]
+desktop = ["dep:tauri", "dep:tauri-build"]
+
+[dependencies]
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+base64 = "=0.22.1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+hound = "=3.5.1"
+libc = "=0.2.182"
+tauri = { version = "=2.11.5", features = ["tray-icon"], optional = true }
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [], optional = true }
+
+[dev-dependencies]
+tempfile = "=3.25.0"
+
+[[bin]]
+name = "interview-helper"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false
+
+[profile.release]
+strip = true
