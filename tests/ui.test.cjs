@@ -27,10 +27,10 @@ test('dynamic actions, independent answers, settings and continuous recording', 
         { id: 'answer', name: 'Ответь', prompt: 'Ответь на вопрос', shortcut: 'Ctrl+Alt+Enter' },
         { id: 'brief', name: 'Кратко', prompt: 'Дай краткий ответ', shortcut: 'Ctrl+Alt+K' },
         { id: 'clarify', name: 'Уточни', prompt: 'Задай уточняющий вопрос', shortcut: 'Ctrl+Alt+U' },
-      ], model: 'gpt-6-luna', reasoning_effort: 'low', cut_shortcut: 'Ctrl+Alt+Space' }, session: null, sessions: [], recording: false, samples: 0, peak: 0, error: null, hotkey_error: null };
+      ], model: 'gpt-6-luna', reasoning_effort: 'low', speed: 'standard', cut_shortcut: 'Ctrl+Alt+Space' }, session: null, sessions: [], recording: false, samples: 0, peak: 0, error: null, hotkey_error: null };
       window.pushState = (changes) => { Object.assign(state, changes); for (const listener of listeners.state || []) listener({ payload: structuredClone(state) }); };
       window.finishAnswer = (id, text, error = null) => { const answer = state.session.answers.find((a) => a.id === id); answer.text = error ? null : text; answer.error = error; answer.status = error ? 'failed' : 'done'; window.pushState({}); };
-      window.optionsFor = (id) => ({ action: structuredClone(state.settings.actions.find((a) => a.id === id)), model: state.settings.model, reasoning_effort: state.settings.reasoning_effort });
+      window.optionsFor = (id) => ({ action: structuredClone(state.settings.actions.find((a) => a.id === id)), model: state.settings.model, reasoning_effort: state.settings.reasoning_effort, speed: state.settings.speed });
       window.manyActions = () => window.pushState({ settings: { ...state.settings, actions: Array.from({ length: 12 }, (_, i) => ({ id: `custom-${i}`, name: `Действие ${i + 1} с длинным названием`, prompt: 'Тест', shortcut: '' })) } });
       window.__TAURI__ = {
         event: { listen: async (name, callback) => { (listeners[name] ||= []).push(callback); return () => {}; } },
@@ -48,10 +48,10 @@ test('dynamic actions, independent answers, settings and continuous recording', 
             if (window.rejectSettings) throw new Error('Горячая клавиша уже используется.');
             window.pushState({ settings: { ...state.settings, ...params.settings } });
           }
-          if (command === 'save_model_settings') window.pushState({ settings: { ...state.settings, model: params.model, reasoning_effort: params.reasoningEffort } });
+          if (command === 'save_model_settings') window.pushState({ settings: { ...state.settings, model: params.model, reasoning_effort: params.reasoningEffort, speed: params.speed } });
           if (command === 'regenerate_answer') {
             const answer = state.session.answers.find((item) => item.id === params.answerId);
-            if (answer.text) answer.history.push({ text: answer.text, model: answer.options.model, reasoning_effort: answer.options.reasoning_effort });
+            if (answer.text) answer.history.push({ text: answer.text, model: answer.options.model, reasoning_effort: answer.options.reasoning_effort, speed: answer.options.speed });
             Object.assign(answer, { text: null, status: 'running', error: null, options: window.optionsFor(answer.options.action.id) });
             window.pushState({});
           }
@@ -63,6 +63,7 @@ test('dynamic actions, independent answers, settings and continuous recording', 
     assert.equal(await page.locator('#settings-dialog').evaluate((el) => el.open), false);
     assert.equal(await page.locator('#prompt-actions button').count(), 3);
     assert.equal(await page.locator('#regenerate-button').isEnabled(), false);
+    assert.equal(await page.getByLabel('Скорость ответа').inputValue(), 'standard');
     assert.equal(await page.getByLabel('Reasoning', { exact: true }).inputValue(), 'low');
     await page.getByRole('button', { name: '● Начать', exact: true }).click();
     await page.getByRole('button', { name: 'Файл контекста', exact: false }).click();
@@ -100,6 +101,9 @@ test('dynamic actions, independent answers, settings and continuous recording', 
     await page.getByLabel('Модель для ответа').selectOption('gpt-6-astra');
     await page.getByLabel('Reasoning', { exact: true }).selectOption('high');
     await page.waitForFunction(() => !document.getElementById('model-select').disabled);
+    await page.getByLabel('Скорость ответа').selectOption('fast');
+    await page.waitForFunction(() => !document.getElementById('speed-select').disabled);
+    assert.equal(await page.evaluate(() => window.calls.filter((c) => c.command === 'save_model_settings').at(-1).params.speed), 'fast');
     assert.equal(await page.evaluate(() => window.calls.filter((c) => c.command === 'regenerate_answer').length), 0);
     await page.getByRole('button', { name: 'Настройки', exact: false }).click();
     assert.equal(await page.getByLabel('Микрофон', { exact: true }).locator('option:checked').textContent(), 'Test microphone');
@@ -124,6 +128,7 @@ test('dynamic actions, independent answers, settings and continuous recording', 
     assert.equal(await page.locator('#prompt-actions').getByRole('button', { name: 'Уточни', exact: false }).count(), 0);
     assert.equal(await page.locator('[data-action-id="brief"] kbd').textContent(), 'Ctrl + Alt + B');
     assert.equal(await page.getByLabel('Reasoning', { exact: true }).inputValue(), 'high');
+    assert.equal(await page.getByLabel('Скорость ответа').inputValue(), 'fast');
     const actions = await page.evaluate(() => window.calls.filter((c) => c.command === 'save_settings').at(-1).params.settings.actions);
     assert.equal(actions[1].id, 'brief');
     assert.equal(actions[1].prompt, 'Новый промпт тезисов');
@@ -131,7 +136,9 @@ test('dynamic actions, independent answers, settings and continuous recording', 
     assert(actions[2].id && actions[2].id !== actions[0].id);
     await page.getByRole('button', { name: 'Перегенерить ответ', exact: true }).click();
     assert.equal(await page.locator('#answer-content').textContent(), 'Краткий ответ');
+    assert.equal(await page.locator('#answer-model').getAttribute('title'), 'Скорость запроса: Standard');
     assert.equal(await page.locator('#regenerate-button').isEnabled(), false);
+    await page.getByLabel('Скорость ответа').selectOption('standard');
     assert.equal(await page.locator('#answer-boundary').textContent(), 'Тезисы · до #002');
     assert.equal(await page.locator('#record-label').textContent(), 'Идёт запись');
     assert.deepEqual(await page.evaluate(() => window.calls.filter((c) => c.command === 'regenerate_answer').map((c) => c.params)), [{ sessionId: '1793000000000-1', answerId: 2 }]);
@@ -148,6 +155,7 @@ test('dynamic actions, independent answers, settings and continuous recording', 
     await page.evaluate(() => window.finishAnswer(2, 'Новый ответ с medium'));
     assert.equal(await page.locator('#answer-content').textContent(), 'Новый ответ с medium');
     assert.equal(await page.locator('#answer-model').textContent(), '✦ Черновик GPT-6-Astra · medium');
+    assert.equal(await page.locator('#answer-model').getAttribute('title'), 'Скорость запроса: Standard');
     fs.mkdirSync(path.join(__dirname, '..', 'test-results'), { recursive: true });
     await page.screenshot({ path: path.join(__dirname, '..', 'test-results', 'actions-ui.png') });
     await page.getByRole('button', { name: 'Настройки', exact: false }).click();

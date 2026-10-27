@@ -569,11 +569,13 @@ select {
 }
 .response-options {
   display:grid;
-  grid-template-columns:minmax(0,1fr) minmax(90px,.55fr);
-  gap:10px;
+  grid-template-columns:minmax(0,1.35fr) minmax(0,.85fr) minmax(0,1fr);
+  gap:8px;
 }
 .response-options select {
   width:100%;
+  font-size:12px;
+  padding:8px 6px;
 }
 .prompt-actions {
   display:grid;
@@ -833,9 +835,6 @@ label input,label select,label textarea {
   }
   .response-options label {
     gap:5px
-  }
-  .response-options select {
-    padding:8px
   }
   .actions>#regenerate-button {
     min-height:36px;

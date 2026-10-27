@@ -46,6 +46,7 @@ struct Task {
     prompt: String,
     model: String,
     reasoning_effort: String,
+    speed: String,
 }
 
 impl Service {
@@ -89,9 +90,10 @@ impl Service {
     }
     pub fn save_settings(&self, mut settings: Settings) -> Result<(), String> {
         let mut current = self.settings.lock().map_err(|e| e.to_string())?;
-        // Model selectors save independently from the settings dialog.
+        // Response controls save independently from the settings dialog.
         settings.model = current.model.clone();
         settings.reasoning_effort = current.reasoning_effort.clone();
+        settings.speed = current.speed.clone();
         settings.validate()?;
         session::atomic_json(&self.root.join("settings.json"), &settings)?;
         *current = settings;
@@ -103,11 +105,13 @@ impl Service {
         &self,
         model: String,
         reasoning_effort: String,
+        speed: String,
     ) -> Result<(), String> {
         let mut current = self.settings.lock().map_err(|e| e.to_string())?;
         let mut updated = current.clone();
         updated.model = model;
         updated.reasoning_effort = reasoning_effort;
+        updated.speed = speed;
         updated.validate()?;
         session::atomic_json(&self.root.join("settings.json"), &updated)?;
         *current = updated;
@@ -357,6 +361,7 @@ impl Service {
                     text,
                     model: answer.options.model.clone(),
                     reasoning_effort: answer.options.reasoning_effort.clone(),
+                    speed: answer.options.speed.clone(),
                 });
             }
             if let Some(action) = settings
@@ -368,6 +373,7 @@ impl Service {
             }
             answer.options.model = settings.model;
             answer.options.reasoning_effort = settings.reasoning_effort;
+            answer.options.speed = settings.speed;
             answer.status = Status::WaitingContext;
             answer.error = None;
             session::save(&self.root, &state)?;
@@ -456,6 +462,7 @@ impl Service {
                         prompt: String::new(),
                         model: String::new(),
                         reasoning_effort: String::new(),
+                        speed: String::new(),
                     });
                 }
             }
@@ -490,6 +497,7 @@ impl Service {
                     prompt: answer.options.action.prompt.clone(),
                     model: answer.options.model.clone(),
                     reasoning_effort: answer.options.reasoning_effort.clone(),
+                    speed: answer.options.speed.clone(),
                 });
             }
         }
@@ -507,6 +515,7 @@ impl Service {
                 &task.prompt,
                 &task.model,
                 &task.reasoning_effort,
+                &task.speed,
             ),
         };
         let update = self.update(&task.session, |state| {
@@ -567,12 +576,13 @@ mod tests {
         sync::atomic::AtomicBool,
         time::{Duration, Instant},
     };
+    type AnswerCall = (String, String, String, String, String);
     struct Fake {
         release_transcript: AtomicBool,
         release_answers: AtomicBool,
         fail_answer: AtomicBool,
         transcriptions: AtomicUsize,
-        calls: Mutex<Vec<(String, String, String, String)>>,
+        calls: Mutex<Vec<AnswerCall>>,
     }
     impl Backend for Fake {
         fn transcribe(&self, audio: &Path) -> Result<String, String> {
@@ -591,12 +601,14 @@ mod tests {
             prompt: &str,
             model: &str,
             effort: &str,
+            speed: &str,
         ) -> Result<String, String> {
             self.calls.lock().unwrap().push((
                 context.into(),
                 prompt.into(),
                 model.into(),
                 effort.into(),
+                speed.into(),
             ));
             while !self.release_answers.load(Ordering::Acquire) {
                 thread::sleep(Duration::from_millis(5));
@@ -707,16 +719,19 @@ mod tests {
         changed.actions.clear();
         service.save_settings(changed).unwrap();
         service
-            .save_model_settings("gpt-6-astra".into(), "high".into())
+            .save_model_settings("gpt-6-astra".into(), "high".into(), "fast".into())
             .unwrap();
         backend.release_transcript.store(true, Ordering::Release);
         wait_for(|| backend.calls.lock().unwrap().len() == 2);
         {
             let calls = backend.calls.lock().unwrap();
-            for (context, prompt, model, effort) in calls.iter() {
+            for (context, prompt, model, effort, speed) in calls.iter() {
                 assert_eq!(context, "first\n\nsecond");
                 assert!(settings.actions[..2].iter().any(|a| a.prompt == *prompt));
-                assert_eq!((model.as_str(), effort.as_str()), ("gpt-6-luna", "low"));
+                assert_eq!(
+                    (model.as_str(), effort.as_str(), speed.as_str()),
+                    ("gpt-6-luna", "low", "standard")
+                );
             }
             assert_ne!(calls[0].1, calls[1].1);
         }
@@ -746,12 +761,14 @@ mod tests {
         let target = fixture(&service, true);
         let id = target.lock().unwrap().id.clone();
         service
-            .save_model_settings("gpt-6-astra".into(), "high".into())
+            .save_model_settings("gpt-6-astra".into(), "high".into(), "fast".into())
             .unwrap();
         let mut settings = service.settings();
         settings.actions[1].prompt = "updated brief prompt".into();
         settings.actions[0].prompt = "unrelated prompt".into();
+        settings.speed = "standard".into();
         service.save_settings(settings).unwrap();
+        assert_eq!(service.settings().speed, "fast");
         service.regenerate_answer(&id, 1).unwrap();
         wait_for(|| backend.calls.lock().unwrap().len() == 1);
         assert!(service.regenerate_answer(&id, 1).is_err());
@@ -763,7 +780,8 @@ mod tests {
                 "first\n\nsecond".into(),
                 "updated brief prompt".into(),
                 "gpt-6-astra".into(),
-                "high".into()
+                "high".into(),
+                "fast".into()
             )
         );
         {
@@ -773,9 +791,10 @@ mod tests {
             assert_eq!(state.segments[3].start_sample, 72000);
             assert!(state.segments[3].end_sample.is_none());
             assert_eq!(state.answers[0].history[0].text, "original low answer");
+            assert_eq!(state.answers[0].history[0].speed, "standard");
         }
         service
-            .save_model_settings("gpt-6-luna".into(), "medium".into())
+            .save_model_settings("gpt-6-luna".into(), "medium".into(), "standard".into())
             .unwrap();
         backend.release_answers.store(true, Ordering::Release);
         wait_for(|| service.active_answers.load(Ordering::Relaxed) == 0);
@@ -789,7 +808,9 @@ mod tests {
             fs::read_to_string(&path).unwrap(),
             "first\n\nsecond\n\nthird"
         );
+        assert_eq!(state.answers[0].options.speed, "fast");
         let answers = fs::read_to_string(path.with_file_name("answers.txt")).unwrap();
+        assert!(answers.contains("/ fast") && answers.contains("/ standard"));
         assert!(
             answers.contains("original low answer")
                 && answers.contains("response/gpt-6-astra/high/updated brief prompt")
@@ -827,7 +848,7 @@ mod tests {
             .contains("original low answer"));
         backend.fail_answer.store(false, Ordering::Release);
         service
-            .save_model_settings("gpt-6-luna".into(), "medium".into())
+            .save_model_settings("gpt-6-luna".into(), "medium".into(), "standard".into())
             .unwrap();
         service.regenerate_answer(&id, 1).unwrap();
         wait_for(|| service.active_answers.load(Ordering::Relaxed) == 0);
@@ -867,6 +888,9 @@ mod tests {
         fixture(&service, true);
         let context = service.context_file().unwrap();
         let before = fs::read(&context).unwrap();
+        service
+            .save_model_settings("gpt-6-luna".into(), "low".into(), "fast".into())
+            .unwrap();
         let mut settings = service.settings();
         settings.actions[1].name = "Моя кнопка".into();
         service.save_settings(settings).unwrap();
@@ -876,6 +900,7 @@ mod tests {
         assert!(restarted.snapshot()["session"].is_null());
         assert_eq!(restarted.snapshot()["sessions"], json!([]));
         assert_eq!(restarted.settings().actions[1].name, "Моя кнопка");
+        assert_eq!(restarted.settings().speed, "fast");
         assert_eq!(fs::read(context).unwrap(), before);
         assert!(!restarted.busy());
     }

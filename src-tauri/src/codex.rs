@@ -22,6 +22,7 @@ pub trait Backend: Send + Sync {
         prompt: &str,
         model: &str,
         effort: &str,
+        speed: &str,
     ) -> Result<String, String>;
 }
 
@@ -241,10 +242,11 @@ impl Backend for Codex {
         prompt: &str,
         model: &str,
         effort: &str,
+        speed: &str,
     ) -> Result<String, String> {
         let rpc = Rpc::open()?;
         let thread = rpc.thread(model)?;
-        let params = json!({"threadId":thread,"model":model,"effort":effort,"input":[{"type":"text","text":format!("Задача:\n{prompt}\n\nРасшифровка разговора:\n{context}")}]});
+        let params = answer_params(&thread, context, prompt, model, effort, speed)?;
         rpc.request("turn/start", params)?;
         let deadline = Instant::now() + Duration::from_secs(180);
         let mut result = String::new();
@@ -277,5 +279,50 @@ impl Backend for Codex {
             "Codex не завершил запрос за 3 минуты. Запись продолжается; запрос можно повторить."
                 .into(),
         )
+    }
+}
+
+fn answer_params(
+    thread: &str,
+    context: &str,
+    prompt: &str,
+    model: &str,
+    effort: &str,
+    speed: &str,
+) -> Result<Value, String> {
+    let tier = match speed {
+        "standard" => "default",
+        "fast" => "fast",
+        _ => return Err("Выберите скорость Standard или Fast.".into()),
+    };
+    // Explicit default prevents Standard from inheriting the user's Codex Fast setting.
+    Ok(
+        json!({"threadId":thread,"model":model,"effort":effort,"serviceTierForTurn":tier,"input":[{"type":"text","text":format!("Задача:\n{prompt}\n\nРасшифровка разговора:\n{context}")}] }),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn answer_speed_is_an_explicit_per_turn_override() {
+        for (speed, tier) in [("standard", "default"), ("fast", "fast")] {
+            let params =
+                answer_params("thread", "conversation", "task", "gpt-6-luna", "low", speed)
+                    .unwrap();
+            assert_eq!(params["serviceTierForTurn"], tier);
+            assert!(params.get("serviceTier").is_none());
+            assert_eq!(params["model"], "gpt-6-luna");
+            assert_eq!(params["effort"], "low");
+        }
+        assert!(answer_params(
+            "thread",
+            "conversation",
+            "task",
+            "gpt-6-luna",
+            "low",
+            "turbo"
+        )
+        .is_err());
     }
 }

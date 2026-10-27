@@ -70,9 +70,12 @@ fn regenerate_answer(
 fn save_model_settings(
     model: String,
     reasoning_effort: String,
+    speed: String,
     state: State<AppState>,
 ) -> Result<(), String> {
-    state.service.save_model_settings(model, reasoning_effort)
+    state
+        .service
+        .save_model_settings(model, reasoning_effort, speed)
 }
 #[tauri::command]
 fn select_session(id: String, state: State<AppState>) -> Result<(), String> {

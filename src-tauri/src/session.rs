@@ -11,6 +11,7 @@ use std::{
 pub const SAMPLE_RATE: u32 = 24_000;
 pub const DEFAULT_MODEL: &str = "gpt-6-luna";
 pub const DEFAULT_REASONING_EFFORT: &str = "low";
+pub const DEFAULT_SPEED: &str = "standard";
 pub const ANSWER_PROMPT: &str = "Подготовь короткий ответ от моего лица на последний актуальный вопрос в разговоре. Учти весь предоставленный контекст. Дай готовый текст для чтения вслух, без служебных пояснений. Не выдумывай мой опыт, обязательства и неизвестные факты. Если вопрос или необходимые данные неясны, предложи уточнение.";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -26,6 +27,7 @@ pub struct AnswerOptions {
     pub action: PromptAction,
     pub model: String,
     pub reasoning_effort: String,
+    pub speed: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -36,6 +38,7 @@ pub struct Settings {
     pub actions: Vec<PromptAction>,
     pub model: String,
     pub reasoning_effort: String,
+    pub speed: String,
     pub cut_shortcut: String,
 }
 impl Default for Settings {
@@ -50,6 +53,7 @@ impl Default for Settings {
             ],
             model: DEFAULT_MODEL.into(),
             reasoning_effort: DEFAULT_REASONING_EFFORT.into(),
+            speed: DEFAULT_SPEED.into(),
             cut_shortcut: "Ctrl+Alt+Space".into(),
         }
     }
@@ -105,6 +109,9 @@ impl Settings {
         {
             return Err("Выберите поддерживаемый уровень reasoning.".into());
         }
+        if !["standard", "fast"].contains(&self.speed.as_str()) {
+            return Err("Выберите скорость Standard или Fast.".into());
+        }
         Ok(())
     }
     pub fn answer_options(&self, action_id: &str) -> Result<AnswerOptions, String> {
@@ -117,6 +124,7 @@ impl Settings {
             action: action.clone(),
             model: self.model.clone(),
             reasoning_effort: self.reasoning_effort.clone(),
+            speed: self.speed.clone(),
         })
     }
 }
@@ -136,6 +144,7 @@ pub struct AnswerRevision {
     pub text: String,
     pub model: String,
     pub reasoning_effort: String,
+    pub speed: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -328,20 +337,21 @@ pub fn save(root: &Path, session: &Session) -> Result<(), String> {
     atomic_write(&path, session.transcript(u64::MAX)?.as_bytes())?;
     let mut answers = String::new();
     for answer in &session.answers {
-        for (text, model, effort) in answer
+        for (text, model, effort, speed) in answer
             .history
             .iter()
-            .map(|a| (&a.text, &a.model, &a.reasoning_effort))
+            .map(|a| (&a.text, &a.model, &a.reasoning_effort, &a.speed))
             .chain(answer.text.as_ref().map(|text| {
                 (
                     text,
                     &answer.options.model,
                     &answer.options.reasoning_effort,
+                    &answer.options.speed,
                 )
             }))
         {
             answers.push_str(&format!(
-                "{} · после отрезка #{:03} · {model} / {effort}\n{text}\n\n",
+                "{} · после отрезка #{:03} · {model} / {effort} / {speed}\n{text}\n\n",
                 answer.options.action.name, answer.through_seq
             ));
         }
@@ -387,6 +397,9 @@ mod tests {
         assert!(settings.validate().is_err());
         settings.actions.clear();
         settings.validate().unwrap();
+        assert_eq!(settings.speed, "standard");
+        settings.speed = "turbo".into();
+        assert!(settings.validate().is_err());
         assert!(settings.answer_options("answer").is_err());
     }
     #[test]
@@ -448,7 +461,7 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(path.with_file_name("answers.txt")).unwrap(),
-            "Ответь · после отрезка #002 · gpt-6-luna / low\nПодсказка модели.\n\n"
+            "Ответь · после отрезка #002 · gpt-6-luna / low / standard\nПодсказка модели.\n\n"
         );
         assert!(!path.with_file_name("session.json").exists());
         assert_eq!(

@@ -5,6 +5,7 @@ let devices = null;
 let models = [];
 const defaultModel = 'gpt-6-luna';
 const defaultEffort = 'low';
+const defaultSpeed = 'standard';
 let recordCommand = false;
 let modelSettingsSaving = false;
 let regenerationStarting = false;
@@ -126,10 +127,11 @@ function renderAnswer(answers) {
   }
   const requested = selectedAnswer();
   const options = requested?.options;
-  const saved = requested?.text ? { text: requested.text, model: options.model, reasoning_effort: options.reasoning_effort } : requested?.history?.at(-1);
+  const saved = requested?.text ? { text: requested.text, model: options.model, reasoning_effort: options.reasoning_effort, speed: options.speed } : requested?.history?.at(-1);
   const model = saved?.model || options?.model || state.settings.model || defaultModel;
   const effort = saved?.reasoning_effort || options?.reasoning_effort || state.settings.reasoning_effort || defaultEffort;
   $('answer-model').textContent = `✦ Черновик ${modelLabel(model)} · ${effort}`;
+  $('answer-model').title = `Скорость запроса: ${(saved?.speed || options?.speed || state.settings.speed) === 'fast' ? 'Fast' : 'Standard'}`;
   $('answer-selector').hidden = answers.length < 2;
   const picker = $('answer-picker');
   const signature = JSON.stringify(answers.map((a) => [a.id, a.options.action.name, a.through_seq]));
@@ -212,6 +214,8 @@ function render(payload) {
   if (!modelSettingsSaving && ($('model-select').value !== (state.settings.model || defaultModel) || $('reasoning-select').value !== (state.settings.reasoning_effort || defaultEffort))) fillModels();
   $('model-select').disabled = modelSettingsSaving;
   $('reasoning-select').disabled = modelSettingsSaving;
+  if (!modelSettingsSaving) $('speed-select').value = state.settings.speed || defaultSpeed;
+  $('speed-select').disabled = modelSettingsSaving;
   $('prompt-preview').textContent = (state.settings.actions || []).map((action) => action.name).join(' · ') || 'Добавьте действия в настройках.';
   $('response-model').textContent = `Ответ · ${modelLabel(state.settings.model || defaultModel)} · ${state.settings.reasoning_effort || defaultEffort}`;
   $('open-context').disabled = !state.session;
@@ -295,9 +299,10 @@ async function saveModelSelection() {
   if (modelSettingsSaving) return;
   const model = $('model-select').value;
   const reasoningEffort = $('reasoning-select').value;
+  const speed = $('speed-select').value;
   modelSettingsSaving = true;
   render(state);
-  try { await invoke('save_model_settings', { model, reasoningEffort }); render(await invoke('snapshot')); }
+  try { await invoke('save_model_settings', { model, reasoningEffort, speed }); render(await invoke('snapshot')); }
   catch (error) { message(error); }
   finally { modelSettingsSaving = false; fillModels(); render(state); }
 }
@@ -329,6 +334,7 @@ $('close-settings').addEventListener('click', () => $('settings-dialog').close()
 $('check-connection').addEventListener('click', checkConnection);
 $('model-select').addEventListener('change', () => { fillReasoning($('model-select').value, $('reasoning-select').value); saveModelSelection(); });
 $('reasoning-select').addEventListener('change', saveModelSelection);
+$('speed-select').addEventListener('change', saveModelSelection);
 $('dismiss-alert').addEventListener('click', () => { $('alert').hidden = true; act('clear_error'); });
 $('settings-form').addEventListener('submit', async (event) => {
   event.preventDefault();

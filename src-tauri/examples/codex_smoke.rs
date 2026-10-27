@@ -22,6 +22,7 @@ fn main() -> Result<(), String> {
         &options.action.prompt,
         &options.model,
         &options.reasoning_effort,
+        &options.speed,
     )?;
     assert!(!answer.trim().is_empty());
     println!("{answer}");
