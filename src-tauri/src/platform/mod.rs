@@ -10,9 +10,19 @@ pub mod control;
 #[path = "linux/hotkeys.rs"]
 pub mod hotkeys;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
+#[path = "windows/capture.rs"]
+pub mod capture;
+#[cfg(target_os = "windows")]
+#[path = "windows/control.rs"]
+pub mod control;
+#[cfg(target_os = "windows")]
+#[path = "windows/hotkeys.rs"]
+pub mod hotkeys;
+
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 mod unsupported;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub use unsupported::{capture, control, hotkeys};
 
 use std::{
