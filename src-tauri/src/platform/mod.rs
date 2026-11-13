@@ -19,6 +19,9 @@ pub mod control;
 #[cfg(target_os = "windows")]
 #[path = "windows/hotkeys.rs"]
 pub mod hotkeys;
+#[cfg(target_os = "windows")]
+#[path = "windows/process.rs"]
+pub(crate) mod process;
 
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 mod unsupported;

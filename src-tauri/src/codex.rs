@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
     path::Path,
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin},
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, Sender},
@@ -36,8 +36,7 @@ pub struct Rpc {
 }
 impl Rpc {
     pub fn open() -> Result<Self, String> {
-        let mut command = Command::new("codex");
-        command.args(["app-server", "--listen", "stdio://"]);
+        let mut args = vec!["app-server", "--listen", "stdio://"];
         for setting in [
             "mcp_servers={}",
             "features.plugins=false",
@@ -55,15 +54,22 @@ impl Rpc {
             "web_search=\"disabled\"",
             "model_reasoning_effort=\"low\"",
         ] {
-            command.args(["-c", setting]);
+            args.extend(["-c", setting]);
         }
-        command.current_dir(std::env::temp_dir());
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| format!("Не удалось запустить Codex: {e}"))?;
+        #[cfg(target_os = "windows")]
+        let child = crate::platform::process::spawn_codex(&args);
+        #[cfg(not(target_os = "windows"))]
+        let child = {
+            use std::process::{Command, Stdio};
+            Command::new("codex")
+                .args(&args)
+                .current_dir(std::env::temp_dir())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+        };
+        let mut child = child.map_err(|e| format!("Не удалось запустить Codex: {e}"))?;
         let input = child.stdin.take().ok_or("Codex не открыл stdin.")?;
         let stdout = child.stdout.take().ok_or("Codex не открыл stdout.")?;
         let pending: Arc<Mutex<HashMap<u64, Sender<Reply>>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -182,8 +188,13 @@ impl Rpc {
 impl Drop for Rpc {
     fn drop(&mut self) {
         if let Ok(mut child) = self.child.lock() {
-            let _ = child.kill();
-            let _ = child.wait();
+            #[cfg(target_os = "windows")]
+            crate::platform::process::stop_codex(&mut child);
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
     }
 }
