@@ -81,17 +81,18 @@ fn find_device(id: &str, microphone: bool) -> Result<cpal::Device, String> {
         })
 }
 
-// Stateful box-filter downsampling. Typical WASAPI device rates are 44.1 or 48 kHz.
+// Stateful box-filter downsampling and linear upsampling for low-rate headsets.
 struct Resampler {
     rate: u32,
     channels: usize,
     phase: u32,
     sum: f32,
     count: u32,
+    previous: Option<f32>,
 }
 impl Resampler {
     fn new(rate: u32, channels: u16) -> Result<Self, String> {
-        if rate < SAMPLE_RATE || channels == 0 {
+        if rate == 0 || channels == 0 {
             return Err(format!(
                 "Формат аудио {rate} Гц / {channels} каналов не поддерживается."
             ));
@@ -102,6 +103,7 @@ impl Resampler {
             phase: 0,
             sum: 0.0,
             count: 0,
+            previous: None,
         })
     }
     fn convert<T: Sample>(&mut self, input: &[T]) -> Vec<f32>
@@ -114,11 +116,25 @@ impl Resampler {
         for frame in input.chunks_exact(self.channels) {
             let sample =
                 frame.iter().map(|v| f32::from_sample(*v)).sum::<f32>() / self.channels as f32;
-            self.sum += if sample.is_finite() {
+            let sample = if sample.is_finite() {
                 sample.clamp(-1.0, 1.0)
             } else {
                 0.0
             };
+            if self.rate < SAMPLE_RATE {
+                // Keep the previous frame and phase across callbacks. Interpolation
+                // adds one input-frame delay; extend the first sample back into it.
+                let previous = self.previous.unwrap_or(sample);
+                self.phase += SAMPLE_RATE;
+                while self.phase >= self.rate {
+                    self.phase -= self.rate;
+                    let weight = 1.0 - self.phase as f32 / SAMPLE_RATE as f32;
+                    output.push(previous + (sample - previous) * weight);
+                }
+                self.previous = Some(sample);
+                continue;
+            }
+            self.sum += sample;
             self.count += 1;
             self.phase += SAMPLE_RATE;
             if self.phase >= self.rate {
@@ -475,6 +491,58 @@ mod tests {
             count += converter.convert(chunk).len();
         }
         assert_eq!(count, 24_000);
+    }
+    #[test]
+    fn resampling_preserves_signal_across_callback_boundaries_at_all_rates() {
+        for rate in [8_000, 16_000, 22_050, 24_000, 44_100, 48_000] {
+            let input: Vec<f32> = (0..rate)
+                .flat_map(|frame| {
+                    let value = (frame % 199) as f32 / 99.0 - 1.0;
+                    [value, value * 0.5]
+                })
+                .collect();
+            let expected = Resampler::new(rate, 2).unwrap().convert(&input);
+            assert_eq!(expected.len(), SAMPLE_RATE as usize, "rate {rate}");
+            for chunk_frames in [1, 137, 479] {
+                let mut converter = Resampler::new(rate, 2).unwrap();
+                let mut actual = Vec::new();
+                for chunk in input.chunks(chunk_frames * 2) {
+                    actual.extend(converter.convert(chunk));
+                }
+                assert_eq!(actual, expected, "rate {rate}, chunks {chunk_frames}");
+            }
+        }
+    }
+    #[test]
+    fn upsampling_interpolates_low_rate_audio_without_boundary_jumps() {
+        for rate in [8_000, 16_000, 22_050] {
+            let input: Vec<f32> = (0..rate).map(|frame| frame as f32 / rate as f32).collect();
+            let mut converter = Resampler::new(rate, 1).unwrap();
+            let mut actual = Vec::new();
+            for chunk in input.chunks(137) {
+                actual.extend(converter.convert(chunk));
+            }
+            assert_eq!(actual.len(), SAMPLE_RATE as usize, "rate {rate}");
+            for (index, sample) in actual.into_iter().enumerate() {
+                let expected =
+                    ((index + 1) as f32 / SAMPLE_RATE as f32 - 1.0 / rate as f32).max(0.0);
+                assert!(
+                    (sample - expected).abs() < 0.000_001,
+                    "rate {rate}, sample {index}: {sample} != {expected}"
+                );
+            }
+        }
+    }
+    #[test]
+    fn resampling_preserves_stereo_average_and_rejects_invalid_formats() {
+        for rate in [8_000, 16_000, 22_050, 24_000, 44_100, 48_000] {
+            let input = [0.75f32, -0.25].repeat(rate as usize);
+            let actual = Resampler::new(rate, 2).unwrap().convert(&input);
+            assert_eq!(actual.len(), SAMPLE_RATE as usize, "rate {rate}");
+            assert!(actual.iter().all(|sample| *sample == 0.25), "rate {rate}");
+        }
+        assert!(Resampler::new(0, 1).is_err());
+        assert!(Resampler::new(16_000, 0).is_err());
     }
     #[test]
     fn mixer_uses_timestamps_and_fills_silent_output() {

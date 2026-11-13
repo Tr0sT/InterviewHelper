@@ -2,7 +2,12 @@ use interprocess::{
     local_socket::{
         prelude::*, GenericNamespaced, Listener, ListenerNonblockingMode, ListenerOptions, Stream,
     },
-    os::windows::{local_socket::ListenerOptionsExt, security_descriptor::SecurityDescriptor},
+    os::windows::{
+        local_socket::ListenerOptionsExt,
+        named_pipe::{pipe_mode::Bytes, DuplexPipeStream},
+        security_descriptor::SecurityDescriptor,
+    },
+    ConnectWaitMode,
 };
 use serde_json::{json, Value};
 use std::{
@@ -123,14 +128,20 @@ fn write_all(stream: &mut Stream, mut bytes: &[u8]) -> Result<(), String> {
 pub fn send(command: &str) -> Result<Value, String> {
     send_to(&pipe_name()?, command)
 }
+fn connect_to(name: &str, timeout: Duration) -> io::Result<Stream> {
+    // interprocess 2.4.4 ignores ConnectOptions::wait_mode for local sockets.
+    // Use the native pipe API so a busy server cannot block a hotkey indefinitely.
+    let stream = DuplexPipeStream::<Bytes>::connect_by_path_with_wait_mode(
+        format!(r"\\.\pipe\{name}"),
+        ConnectWaitMode::Timeout(timeout),
+    )?;
+    Ok(Stream::NamedPipe(stream.into()))
+}
 fn send_to(name: &str, command: &str) -> Result<Value, String> {
     if command.contains(['\n', '\r']) || command.len() >= 128 {
         return Err("Некорректная команда.".into());
     }
-    let name = name
-        .to_ns_name::<GenericNamespaced>()
-        .map_err(|e| e.to_string())?;
-    let mut stream = Stream::connect(name).map_err(|e| e.to_string())?;
+    let mut stream = connect_to(name, Duration::from_secs(5)).map_err(|e| e.to_string())?;
     stream.set_nonblocking(true).map_err(|e| e.to_string())?;
     write_all(&mut stream, format!("{command}\n").as_bytes())?;
     let line = read_line(&mut stream, 16_777_216, Duration::from_secs(5))?;
@@ -203,6 +214,34 @@ impl Drop for Server {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn busy_pipe_connection_has_a_deadline() {
+        let name = format!("{}-busy-test-{}", pipe_name().unwrap(), std::process::id());
+        let server = Server::bind_at(&name).unwrap();
+        // Do not start the listener: this client occupies its only pipe instance.
+        let first = connect_to(&name, Duration::from_secs(1)).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            let started = Instant::now();
+            let result = connect_to(&name, Duration::from_millis(150)).map(|_| ());
+            let _ = tx.send((result, started.elapsed()));
+        });
+        let result = rx.recv_timeout(Duration::from_secs(3));
+        // Release the handles before asserting, including when a regression leaves
+        // the worker waiting in an unbounded connection attempt.
+        drop(first);
+        drop(server);
+        let (result, elapsed) = match result {
+            Ok(result) => result,
+            Err(_) => {
+                let _ = rx.recv_timeout(Duration::from_secs(3));
+                panic!("connecting to a busy pipe did not respect its deadline");
+            }
+        };
+        worker.join().unwrap();
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        assert!(elapsed < Duration::from_secs(3));
+    }
     #[test]
     fn private_pipe_roundtrips_and_releases_name() {
         let name = format!("{}-test-{}", pipe_name().unwrap(), std::process::id());
