@@ -10,6 +10,7 @@ permissions:
 jobs:
   test:
     name: Core (${{ matrix.os }})
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -19,3 +20,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: rustup toolchain install stable --profile minimal
       - run: cargo +stable test --manifest-path src-tauri/Cargo.toml --no-default-features --lib --locked
+      - name: Compile Windows audio device tests (hardware tests stay ignored)
+        if: runner.os == 'Windows'
+        run: cargo +stable test --manifest-path src-tauri/Cargo.toml --no-default-features --test windows_audio --locked
+      - name: Build the Windows desktop application
+        if: runner.os == 'Windows'
+        run: cargo +stable build --manifest-path src-tauri/Cargo.toml --locked
+      - name: Check Windows desktop code
+        if: runner.os == 'Windows'
+        run: |
+          rustup component add clippy --toolchain stable
+          cargo +stable clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings

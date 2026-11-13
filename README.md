@@ -18,7 +18,7 @@
 
 ## Запуск на Windows
 
-Нужны Windows 10 или 11 x64, Microsoft Edge WebView2 Runtime и установленный `codex` с входом через ChatGPT. Микрофон и выход системного звука выбираются в настройках приложения. Запись не начинается автоматически.
+Нужны Windows 10 или 11 x64, Microsoft Edge WebView2 Runtime и установленный `codex` с входом через ChatGPT. Поддерживаются `codex.exe` и установка через npm (`codex.cmd`); каталог команды должен быть в `PATH`. Микрофон и выход системного звука выбираются в настройках приложения. Запись не начинается автоматически.
 
 Для сборки из исходников установите Rust и Visual Studio Build Tools с инструментами C++, затем выполните:
 
@@ -114,7 +114,7 @@ sessions/<id>/audio/000002.wav
 cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --lib --locked
 ```
 
-[GitHub Actions](.github/workflows/core.yml) запускает эти тесты на Linux, Windows и macOS. Проверка нативного захвата и окон приложения выполняется отдельно.
+[GitHub Actions](.github/workflows/core.yml) запускает эти тесты на Linux, Windows и macOS. На Windows также собирается настольное приложение, проверяется Clippy и компилируется тест аудиоустройств без запуска записи. Проверка нативного захвата и окон приложения выполняется отдельно.
 
 Для проверки Windows с реальными устройствами можно отдельно выполнить:
 
